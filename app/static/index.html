@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文件提取服務</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft JhengHei", sans-serif;
+            background: #f5f7fa; color: #333; min-height: 100vh; padding: 2rem;
+        }
+        .container { max-width: 850px; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 0.3rem; color: #1a1a2e; font-size: 1.8rem; }
+        .subtitle { text-align: center; color: #666; margin-bottom: 1.5rem; font-size: 0.95rem; }
+
+        .card { background: #fff; border-radius: 12px; padding: 1.5rem 2rem; box-shadow: 0 2px 12px rgba(0,0,0,0.08); margin-bottom: 1.2rem; }
+        .card h2 { font-size: 1.05rem; margin-bottom: 0.8rem; color: #1a1a2e; }
+
+        .upload-zone { border: 2px dashed #ccc; border-radius: 8px; padding: 2.5rem 2rem; text-align: center; cursor: pointer; transition: all 0.2s; background: #fafbfc; }
+        .upload-zone:hover, .upload-zone.dragover { border-color: #4a90d9; background: #f0f7ff; }
+        .upload-zone .icon { font-size: 2.5rem; margin-bottom: 0.3rem; }
+        .upload-zone p { color: #666; margin-top: 0.3rem; font-size: 0.9rem; }
+
+        .file-list { margin-top: 0.8rem; max-height: 130px; overflow-y: auto; }
+        .file-item { display: flex; align-items: center; padding: 0.35rem 0.7rem; background: #f0f7ff; border-radius: 6px; margin-bottom: 0.3rem; font-size: 0.85rem; }
+        .file-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .file-item .size { color: #888; margin-left: 0.8rem; font-size: 0.78rem; }
+        .file-item .remove { margin-left: 0.5rem; cursor: pointer; color: #e74c3c; font-weight: bold; }
+
+        .steps-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+        .step-option { display: flex; align-items: center; padding: 0.5rem 0.7rem; border: 1px solid #e0e0e0; border-radius: 6px; cursor: pointer; transition: all 0.15s; font-size: 0.85rem; }
+        .step-option:hover { background: #f0f7ff; }
+        .step-option.checked { background: #e8f4fd; border-color: #4a90d9; }
+        .step-option input { margin-right: 0.4rem; }
+        .step-option .step-num { display: inline-block; width: 1.3rem; height: 1.3rem; line-height: 1.3rem; text-align: center; border-radius: 50%; background: #4a90d9; color: #fff; font-size: 0.7rem; margin-right: 0.4rem; }
+
+        .options-row { display: flex; align-items: center; gap: 1rem; margin-top: 0.8rem; flex-wrap: wrap; }
+        .options-row label { font-size: 0.85rem; color: #555; }
+        .options-row select { padding: 0.3rem 0.6rem; border: 1px solid #ddd; border-radius: 6px; font-size: 0.85rem; }
+
+        .nav-links { text-align: center; margin-bottom: 1.2rem; display: flex; justify-content: center; gap: 1rem; flex-wrap: wrap; }
+        .nav-link { padding: 0.5rem 1rem; background: #f0f0f0; border: 1px solid #ddd; border-radius: 8px; color: #555; text-decoration: none; font-size: 0.85rem; transition: all 0.2s; }
+        .nav-link:hover { background: #e8f4fd; border-color: #4a90d9; color: #333; }
+
+        .btn { display: inline-block; padding: 0.7rem 2rem; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s; text-align: center; }
+        .btn-primary { background: #4a90d9; color: #fff; width: 100%; }
+        .btn-primary:hover:not(:disabled) { background: #357abd; }
+        .btn-primary:disabled { background: #b0c4de; cursor: not-allowed; }
+        .btn-download { background: #27ae60; color: #fff; width: 100%; margin-top: 0.8rem; text-decoration: none; display: block; text-align: center; padding: 0.7rem; border-radius: 8px; font-weight: 600; }
+        .btn-download:hover { background: #219a52; }
+        .btn-preview { background: #8e44ad; color: #fff; width: 100%; margin-top: 0.5rem; text-decoration: none; display: block; text-align: center; padding: 0.6rem; border-radius: 8px; font-size: 0.9rem; cursor: pointer; border: none; }
+        .btn-preview:hover { background: #7d3c98; }
+
+        .progress-section { display: none; }
+        .progress-section.active { display: block; }
+        .progress-log { background: #1a1a2e; color: #e0e0e0; border-radius: 8px; padding: 0.8rem; font-family: "Cascadia Code", "Fira Code", monospace; font-size: 0.8rem; max-height: 250px; overflow-y: auto; line-height: 1.5; }
+        .progress-log .msg { padding: 0.05rem 0; }
+        .progress-bar-wrap { background: #e0e0e0; border-radius: 4px; height: 6px; margin-bottom: 0.8rem; overflow: hidden; }
+        .progress-bar { height: 100%; background: linear-gradient(90deg, #4a90d9, #27ae60); border-radius: 4px; width: 0%; transition: width 0.3s; }
+        .status-text { font-size: 0.9rem; color: #666; margin-bottom: 0.4rem; }
+
+        /* 統計 */
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.8rem; margin-top: 0.8rem; }
+        .stat-box { background: #f8f9fa; border-radius: 8px; padding: 0.8rem; text-align: center; }
+        .stat-box .num { font-size: 1.5rem; font-weight: 700; color: #4a90d9; }
+        .stat-box .label { font-size: 0.75rem; color: #888; margin-top: 0.2rem; }
+
+        /* 預覽 */
+        .preview-section { display: none; }
+        .preview-section.active { display: block; }
+        .preview-list { max-height: 400px; overflow-y: auto; }
+        .preview-item { padding: 0.6rem 0; border-bottom: 1px solid #eee; }
+        .preview-item:last-child { border-bottom: none; }
+        .preview-item .title { font-weight: 600; font-size: 0.9rem; }
+        .preview-item .kw { color: #4a90d9; font-size: 0.8rem; margin-top: 0.2rem; }
+        .preview-item .body { color: #888; font-size: 0.78rem; margin-top: 0.2rem; }
+
+        /* 歷史 */
+        .history-section { }
+        .history-item { display: flex; align-items: center; padding: 0.6rem 0; border-bottom: 1px solid #f0f0f0; font-size: 0.85rem; }
+        .history-item:last-child { border-bottom: none; }
+        .history-item .info { flex: 1; }
+        .history-item .time { color: #888; font-size: 0.78rem; }
+        .history-item .actions { display: flex; gap: 0.5rem; }
+        .history-item .actions a, .history-item .actions button { font-size: 0.78rem; padding: 0.25rem 0.6rem; border-radius: 4px; text-decoration: none; cursor: pointer; border: 1px solid #ddd; background: #fff; color: #555; }
+        .history-item .actions a:hover, .history-item .actions button:hover { background: #f0f7ff; }
+        .history-item .actions .del-btn { color: #e74c3c; border-color: #f5c6cb; }
+
+        @media (max-width: 600px) { body { padding: 1rem; } .steps-grid { grid-template-columns: 1fr; } .stats-grid { grid-template-columns: 1fr 1fr; } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>📰 文件提取服務</h1>
+    <p class="subtitle">丟檔案進來，幫你自動整理成乾淨的文章檔案</p>
+
+    <div class="nav-links">
+        <a href="/settings" class="nav-link">⚙️ 過濾關鍵字設定</a>
+        <a href="/stopwords" class="nav-link">🚫 停用詞設定</a>
+    </div>
+
+    <!-- 上傳 -->
+    <div class="card">
+        <h2>① 選擇檔案</h2>
+        <div class="upload-zone" id="upload-zone">
+            <div class="icon">📁</div>
+            <p><strong>把檔案或資料夾拖到這裡</strong></p>
+            <p>支援 PDF、Word、Excel、TXT（可多選）</p>
+        </div>
+        <input type="file" id="file-input" multiple accept=".pdf,.docx,.xlsx,.txt" hidden>
+        <div class="file-list" id="file-list"></div>
+    </div>
+
+    <!-- 步驟 + 選項 -->
+    <div class="card">
+        <h2>② 處理選項</h2>
+        <div class="steps-grid">
+            <label class="step-option checked"><input type="checkbox" value="1" checked><span class="step-num">1</span>從檔案抓文章出來</label>
+            <label class="step-option checked"><input type="checkbox" value="2" checked><span class="step-num">2</span>自動產生關鍵字</label>
+            <label class="step-option checked"><input type="checkbox" value="3" checked><span class="step-num">3</span>刪掉不相關的文章</label>
+            <label class="step-option checked"><input type="checkbox" value="4" checked><span class="step-num">4</span>去掉重複的文章</label>
+            <label class="step-option checked"><input type="checkbox" value="5" checked><span class="step-num">5</span>清掉正文裡的雜訊</label>
+            <label class="step-option checked"><input type="checkbox" value="6" checked><span class="step-num">6</span>整理檔案格式</label>
+        </div>
+        <div class="options-row">
+            <label>匯出格式：</label>
+            <select id="export-format">
+                <option value="both">TXT + Excel 都要</option>
+                <option value="txt">只要 TXT</option>
+                <option value="xlsx">只要 Excel</option>
+            </select>
+        </div>
+    </div>
+
+    <button class="btn btn-primary" id="submit-btn" disabled>🚀 開始處理</button>
+
+    <!-- 進度 -->
+    <div class="card progress-section" id="progress-section">
+        <h2>處理進度</h2>
+        <p class="status-text" id="status-text">準備中...</p>
+        <div class="progress-bar-wrap"><div class="progress-bar" id="progress-bar"></div></div>
+        <div class="progress-log" id="progress-log"></div>
+
+        <!-- 統計 -->
+        <div class="stats-grid" id="stats-grid" style="display:none">
+            <div class="stat-box"><div class="num" id="stat-extracted">-</div><div class="label">提取文章</div></div>
+            <div class="stat-box"><div class="num" id="stat-filtered">-</div><div class="label">過濾刪除</div></div>
+            <div class="stat-box"><div class="num" id="stat-dedup">-</div><div class="label">去重刪除</div></div>
+            <div class="stat-box"><div class="num" id="stat-final">-</div><div class="label">最終保留</div></div>
+        </div>
+
+        <a class="btn-download" id="download-btn" style="display:none" href="#">📦 下載結果</a>
+        <button class="btn-preview" id="preview-btn" style="display:none" onclick="loadPreview()">👁️ 預覽文章列表</button>
+    </div>
+
+    <!-- 預覽 -->
+    <div class="card preview-section" id="preview-section">
+        <h2>文章預覽 <span id="preview-count" style="font-size:0.8rem;color:#888"></span></h2>
+        <div class="preview-list" id="preview-list"></div>
+    </div>
+
+    <!-- 歷史 -->
+    <div class="card history-section" id="history-section">
+        <h2>📋 處理歷史</h2>
+        <div id="history-list"><p style="color:#888;font-size:0.85rem">載入中...</p></div>
+    </div>
+</div>
+
+<script>
+const uploadZone = document.getElementById('upload-zone');
+const fileInput = document.getElementById('file-input');
+const fileList = document.getElementById('file-list');
+const submitBtn = document.getElementById('submit-btn');
+const progressSection = document.getElementById('progress-section');
+const progressLog = document.getElementById('progress-log');
+const progressBar = document.getElementById('progress-bar');
+const statusText = document.getElementById('status-text');
+const downloadBtn = document.getElementById('download-btn');
+const previewBtn = document.getElementById('preview-btn');
+const statsGrid = document.getElementById('stats-grid');
+
+let selectedFiles = [];
+let currentJobId = '';
+
+// 拖放（支援資料夾）
+uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+uploadZone.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    uploadZone.classList.remove('dragover');
+    const items = e.dataTransfer.items;
+    if (items) {
+        const filePromises = [];
+        for (const item of items) {
+            const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+            if (entry) {
+                filePromises.push(traverseEntry(entry));
+            } else if (item.kind === 'file') {
+                filePromises.push(Promise.resolve([item.getAsFile()]));
+            }
+        }
+        const results = await Promise.all(filePromises);
+        const allFiles = results.flat();
+        addFiles(allFiles);
+    } else {
+        addFiles(e.dataTransfer.files);
+    }
+});
+
+function traverseEntry(entry) {
+    return new Promise(resolve => {
+        if (entry.isFile) {
+            entry.file(f => resolve([f]));
+        } else if (entry.isDirectory) {
+            const reader = entry.createReader();
+            reader.readEntries(async entries => {
+                const results = await Promise.all(entries.map(e => traverseEntry(e)));
+                resolve(results.flat());
+            });
+        } else {
+            resolve([]);
+        }
+    });
+}
+
+fileInput.addEventListener('change', () => addFiles(fileInput.files));
+
+function addFiles(files) {
+    const allowedExt = ['.pdf', '.docx', '.xlsx', '.txt'];
+    for (const f of files) {
+        const ext = '.' + f.name.split('.').pop().toLowerCase();
+        if (allowedExt.includes(ext)) {
+            if (!selectedFiles.find(sf => sf.name === f.name && sf.size === f.size)) {
+                selectedFiles.push(f);
+            }
+        }
+    }
+    renderFileList();
+    submitBtn.disabled = selectedFiles.length === 0;
+}
+
+function renderFileList() {
+    fileList.innerHTML = selectedFiles.map((f, i) => `
+        <div class="file-item">
+            <span class="name">📄 ${f.name}</span>
+            <span class="size">${(f.size/1024/1024).toFixed(1)} MB</span>
+            <span class="remove" onclick="removeFile(${i})">✕</span>
+        </div>
+    `).join('');
+}
+
+function removeFile(idx) {
+    selectedFiles.splice(idx, 1);
+    renderFileList();
+    submitBtn.disabled = selectedFiles.length === 0;
+}
+
+// Checkbox 樣式
+document.querySelectorAll('.step-option input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', () => cb.closest('.step-option').classList.toggle('checked', cb.checked));
+});
+
+// 送出
+submitBtn.addEventListener('click', async () => {
+    if (selectedFiles.length === 0) return;
+
+    const steps = [];
+    document.querySelectorAll('.step-option input:checked').forEach(cb => steps.push(cb.value));
+    const exportFormat = document.getElementById('export-format').value;
+
+    const formData = new FormData();
+    for (const f of selectedFiles) formData.append('files', f);
+    formData.append('steps', steps.join(','));
+    formData.append('export_format', exportFormat);
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = '處理中...';
+    progressSection.classList.add('active');
+    progressLog.innerHTML = '';
+    downloadBtn.style.display = 'none';
+    previewBtn.style.display = 'none';
+    statsGrid.style.display = 'none';
+    document.getElementById('preview-section').classList.remove('active');
+    statusText.textContent = '上傳中...';
+    progressBar.style.width = '5%';
+    progressSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    try {
+        const resp = await fetch('/api/upload', { method: 'POST', body: formData });
+        const data = await resp.json();
+        if (data.error) { appendLog('❌ ' + data.error); resetBtn(); return; }
+
+        currentJobId = data.job_id;
+        statusText.textContent = `處理 ${data.file_count} 個檔案...`;
+        progressBar.style.width = '10%';
+
+        const evtSource = new EventSource(`/api/progress/${data.job_id}`);
+        let msgCount = 0;
+
+        evtSource.addEventListener('progress', e => {
+            msgCount++;
+            appendLog(e.data);
+            // 解析百分比
+            const pctMatch = e.data.match(/\((\d+)%\)/);
+            if (pctMatch) {
+                progressBar.style.width = Math.min(90, parseInt(pctMatch[1])) + '%';
+            } else {
+                progressBar.style.width = Math.min(90, 10 + msgCount * 2) + '%';
+            }
+        });
+
+        evtSource.addEventListener('done', e => {
+            evtSource.close();
+            progressBar.style.width = '100%';
+            statusText.textContent = '✅ 處理完成！';
+
+            const result = JSON.parse(e.data);
+            downloadBtn.href = result.download_url;
+            downloadBtn.style.display = 'block';
+            previewBtn.style.display = 'block';
+
+            // 顯示統計
+            if (result.stats) {
+                const s = result.stats;
+                document.getElementById('stat-extracted').textContent = s.extracted || 0;
+                document.getElementById('stat-filtered').textContent = s.filtered_out || 0;
+                document.getElementById('stat-dedup').textContent = s.dedup_removed || 0;
+                document.getElementById('stat-final').textContent = s.final || 0;
+                statsGrid.style.display = 'grid';
+            }
+
+            resetBtn();
+            loadHistory();
+        });
+
+        evtSource.addEventListener('error', e => {
+            if (e.data) appendLog('❌ ' + e.data);
+            evtSource.close();
+            statusText.textContent = '❌ 處理失敗';
+            resetBtn();
+        });
+    } catch (err) {
+        appendLog('❌ 連線失敗: ' + err.message);
+        resetBtn();
+    }
+});
+
+function resetBtn() { submitBtn.disabled = false; submitBtn.textContent = '🚀 開始處理'; }
+function appendLog(msg) {
+    const div = document.createElement('div');
+    div.className = 'msg';
+    div.textContent = msg;
+    progressLog.appendChild(div);
+    progressLog.scrollTop = progressLog.scrollHeight;
+}
+
+// 預覽
+async function loadPreview() {
+    if (!currentJobId) return;
+    const resp = await fetch(`/api/preview/${currentJobId}`);
+    const data = await resp.json();
+    const section = document.getElementById('preview-section');
+    const list = document.getElementById('preview-list');
+    document.getElementById('preview-count').textContent = `（共 ${data.total || 0} 篇）`;
+
+    list.innerHTML = (data.articles || []).slice(0, 100).map(a => `
+        <div class="preview-item">
+            <div class="title">${a.title}</div>
+            ${a.keywords ? `<div class="kw">🏷️ ${a.keywords}</div>` : ''}
+            <div class="body">${a.preview}</div>
+        </div>
+    `).join('');
+
+    section.classList.add('active');
+    section.scrollIntoView({ behavior: 'smooth' });
+}
+
+// 歷史
+async function loadHistory() {
+    try {
+        const resp = await fetch('/api/history');
+        const history = await resp.json();
+        const container = document.getElementById('history-list');
+
+        if (!history.length) {
+            container.innerHTML = '<p style="color:#888;font-size:0.85rem">還沒有處理紀錄</p>';
+            return;
+        }
+
+        container.innerHTML = history.map(h => `
+            <div class="history-item">
+                <div class="info">
+                    <div>${h.files} 個檔案 → ${h.stats?.final || '?'} 篇文章</div>
+                    <div class="time">${h.time} ｜ 步驟 ${h.steps.join(',')}</div>
+                </div>
+                <div class="actions">
+                    ${h.available ? `<a href="/api/download/${h.job_id}">下載</a>` : '<span style="color:#aaa;font-size:0.78rem">已清除</span>'}
+                    <button class="del-btn" onclick="deleteHistory('${h.job_id}')">刪除</button>
+                </div>
+            </div>
+        `).join('');
+    } catch (e) {
+        document.getElementById('history-list').innerHTML = '<p style="color:#888;font-size:0.85rem">載入失敗</p>';
+    }
+}
+
+async function deleteHistory(jobId) {
+    await fetch(`/api/history/${jobId}`, { method: 'DELETE' });
+    loadHistory();
+}
+
+// 頁面載入時讀歷史
+loadHistory();
+</script>
+</body>
+</html>

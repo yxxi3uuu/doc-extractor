@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.vscode/
+app/temp/
+app/history.json
+data/
+819/
+*.zip
