@@ -352,6 +352,207 @@ async def delete_stopword(word: str):
 
 
 # ===========================================================================
+# 字典檔匯入/管理 API
+# ===========================================================================
+
+DICT_DIR = Path(__file__).parent / "dictionaries"
+DICT_DIR.mkdir(exist_ok=True)
+
+
+@app.get("/dictionary", response_class=HTMLResponse)
+async def dictionary_page():
+    return (STATIC_DIR / "dictionary.html").read_text(encoding="utf-8")
+
+
+@app.post("/api/dictionary/upload")
+async def upload_dictionary(
+    file: UploadFile = File(...),
+    note: str = Form(""),
+):
+    """
+    上傳字典 Excel 檔，解析後更新 config.json。
+    Excel 格式：
+    - sheet 'filter_keywords': 欄位「類別」「關鍵字」
+    - sheet 'stopwords': 欄位「停用詞」
+    - sheet 'settings': 欄位「設定項」「值」
+    """
+    from openpyxl import load_workbook
+    from datetime import datetime
+
+    if not file.filename.lower().endswith(".xlsx"):
+        return JSONResponse({"error": "請上傳 .xlsx 格式的 Excel 檔"}, status_code=400)
+
+    # 存檔
+    content = await file.read()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    saved_name = f"{timestamp}_{file.filename}"
+    saved_path = DICT_DIR / saved_name
+    saved_path.write_bytes(content)
+
+    # 解析
+    try:
+        from io import BytesIO
+        wb = load_workbook(BytesIO(content), read_only=True, data_only=True)
+
+        config = config_manager.load_config()
+        parsed_info = {}
+
+        # 解析 filter_keywords sheet
+        if "filter_keywords" in wb.sheetnames:
+            ws = wb["filter_keywords"]
+            rows = list(ws.iter_rows(values_only=True))
+            keywords_dict = {}
+            for row in rows[1:]:  # 跳過表頭
+                if not row or len(row) < 2:
+                    continue
+                category = str(row[0] or "").strip()
+                keyword = str(row[1] or "").strip()
+                if category and keyword:
+                    if category not in keywords_dict:
+                        keywords_dict[category] = []
+                    if keyword not in keywords_dict[category]:
+                        keywords_dict[category].append(keyword)
+            if keywords_dict:
+                config["filter_keywords"] = keywords_dict
+                parsed_info["filter_keywords"] = f"{len(keywords_dict)} 個類別，共 {sum(len(v) for v in keywords_dict.values())} 個關鍵字"
+
+        # 解析 stopwords sheet
+        if "stopwords" in wb.sheetnames:
+            ws = wb["stopwords"]
+            rows = list(ws.iter_rows(values_only=True))
+            stopwords = []
+            for row in rows[1:]:  # 跳過表頭
+                if not row or not row[0]:
+                    continue
+                word = str(row[0]).strip()
+                if word and word not in stopwords:
+                    stopwords.append(word)
+            if stopwords:
+                stopwords.sort()
+                config["stopwords"] = stopwords
+                parsed_info["stopwords"] = f"{len(stopwords)} 個停用詞"
+
+        # 解析 settings sheet
+        if "settings" in wb.sheetnames:
+            ws = wb["settings"]
+            rows = list(ws.iter_rows(values_only=True))
+            settings = config.get("filter_settings", {})
+            for row in rows[1:]:
+                if not row or len(row) < 2:
+                    continue
+                key = str(row[0] or "").strip()
+                val = row[1]
+                if key:
+                    # 自動轉型
+                    if isinstance(val, bool):
+                        settings[key] = val
+                    elif str(val).lower() in ("true", "1", "是"):
+                        settings[key] = True
+                    elif str(val).lower() in ("false", "0", "否"):
+                        settings[key] = False
+                    else:
+                        settings[key] = str(val)
+            config["filter_settings"] = settings
+            parsed_info["settings"] = f"{len(settings)} 項設定"
+
+        wb.close()
+        config_manager.save_config(config)
+
+        # 記錄字典歷史
+        dict_history = _load_dict_history()
+        dict_history.insert(0, {
+            "filename": saved_name,
+            "original_name": file.filename,
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "note": note,
+            "info": parsed_info,
+        })
+        dict_history = dict_history[:20]
+        _save_dict_history(dict_history)
+
+        return {
+            "status": "success",
+            "filename": saved_name,
+            "parsed": parsed_info,
+        }
+
+    except Exception as e:
+        return JSONResponse({"error": f"解析失敗: {str(e)}"}, status_code=400)
+
+
+@app.get("/api/dictionary/history")
+async def get_dict_history():
+    """取得已上傳的字典歷史"""
+    return _load_dict_history()
+
+
+@app.get("/api/dictionary/current")
+async def get_current_dict():
+    """取得目前生效的字典內容"""
+    config = config_manager.load_config()
+    return {
+        "filter_keywords": config.get("filter_keywords", {}),
+        "stopwords": config.get("stopwords", []),
+        "filter_settings": config.get("filter_settings", {}),
+    }
+
+
+@app.get("/api/dictionary/template")
+async def download_template():
+    """下載字典範本 Excel"""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+
+    # filter_keywords sheet
+    ws1 = wb.active
+    ws1.title = "filter_keywords"
+    ws1.append(["類別", "關鍵字"])
+    # 填入目前的設定當範例
+    config = config_manager.load_config()
+    for cat, kws in config.get("filter_keywords", {}).items():
+        for kw in kws:
+            ws1.append([cat, kw])
+
+    # stopwords sheet
+    ws2 = wb.create_sheet("stopwords")
+    ws2.append(["停用詞"])
+    for w in config.get("stopwords", []):
+        ws2.append([w])
+
+    # settings sheet
+    ws3 = wb.create_sheet("settings")
+    ws3.append(["設定項", "值"])
+    for k, v in config.get("filter_settings", {}).items():
+        ws3.append([k, str(v)])
+
+    template_path = DICT_DIR / "_template.xlsx"
+    wb.save(str(template_path))
+
+    return FileResponse(
+        template_path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename="dictionary_template.xlsx",
+    )
+
+
+DICT_HISTORY_PATH = Path(__file__).parent / "dict_history.json"
+
+
+def _load_dict_history() -> list[dict]:
+    if DICT_HISTORY_PATH.exists():
+        try:
+            return json.loads(DICT_HISTORY_PATH.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, IOError):
+            return []
+    return []
+
+
+def _save_dict_history(history: list[dict]):
+    DICT_HISTORY_PATH.write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+# ===========================================================================
 # 工具函式
 # ===========================================================================
 
