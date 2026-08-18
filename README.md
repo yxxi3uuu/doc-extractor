@@ -78,28 +78,29 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ## 資料夾結構
 
 ```
-817/
+doc-extractor/
 ├── app/                    # Web 應用程式
 │   ├── main.py             # FastAPI 路由
 │   ├── pipeline.py         # 處理流程邏輯
 │   ├── config_manager.py   # 設定管理
 │   ├── config.json         # 過濾關鍵字 + 停用詞設定
-│   ├── history.json        # 處理歷史紀錄
+│   ├── history.json        # 處理歷史紀錄（自動產生）
 │   ├── static/             # 前端頁面
 │   │   ├── index.html
 │   │   ├── settings.html
 │   │   └── stopwords.html
-│   └── temp/               # 暫存（處理中的檔案）
-├── data/                   # 之前處理過的資料檔案
-├── extract_keyword_context.py  # PDF 提取核心
-├── add_keywords_fast.py        # jieba 關鍵字
-├── filter_articles.py          # 文章過濾
-├── dedup_articles.py           # 去重複
-├── clean.py                    # 正文清理
-├── fix_headers.py              # 表頭修正
-├── count_pdf_chars.py          # 輔助：字數統計
+│   └── temp/               # 暫存（自動產生，處理中的檔案）
+├── scripts/                # 核心處理腳本
+│   ├── extract_keyword_context.py  # PDF 提取核心
+│   ├── add_keywords_fast.py        # jieba 關鍵字
+│   ├── filter_articles.py          # 文章過濾
+│   ├── dedup_articles.py           # 去重複
+│   ├── clean.py                    # 正文清理
+│   ├── fix_headers.py              # 表頭修正
+│   └── count_pdf_chars.py          # 輔助：字數統計
 ├── requirements.txt
-└── README.md
+├── README.md
+└── .gitignore
 ```
 
 ---
